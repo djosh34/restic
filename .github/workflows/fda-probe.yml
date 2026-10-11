@@ -1,0 +1,40 @@
+name: fda-probe
+on:
+  push:
+    branches: [research/fda-across-updates]
+    paths: ['probes/fda/**', '.github/workflows/fda-probe.yml']
+  workflow_dispatch:
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      BUILD: ${{ github.workspace }}/build
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: build and sign
+        run: bash probes/fda/build.sh
+      - name: experiments (root)
+        run: sudo BUILD="$BUILD" OUT="$OUT" bash probes/fda/run.sh
+      - name: settings pane
+        if: always()
+        run: bash probes/fda/pane.sh
+      - name: collect
+        if: always()
+        run: |
+          sudo cp -R /var/log/fdaprobe "$OUT/daemon-logs" || true
+          sudo chown -R "$(id -un)" "$OUT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fda-${{ matrix.os }}
+          path: out
