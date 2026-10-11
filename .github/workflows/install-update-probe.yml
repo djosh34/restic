@@ -1,0 +1,44 @@
+name: install and self-update probe (issue 15)
+on:
+  push:
+    branches: [research/install-and-self-update]
+    paths: [.github/workflows/install-update-probe.yml, experiments/install-update/**]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cross:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - name: cross-build probe for darwin/arm64 on Linux
+        run: |
+          cd experiments/install-update/probe
+          curl -fsSL https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_darwin_arm64.bz2 | bunzip2 > restic.bin
+          sha256sum restic.bin | cut -d' ' -f1 > restic.sha256
+          go version
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=linux-cross" -o probe-linux .
+          file probe-linux
+      - uses: actions/upload-artifact@v4
+        with: { name: probe-linux, path: experiments/install-update/probe/probe-linux, retention-days: 1 }
+  mac:
+    needs: cross
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: stable, cache: false }
+      - uses: actions/download-artifact@v4
+        with: { name: probe-linux, path: ${{ runner.temp }}/cross }
+      - name: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CROSS: ${{ runner.temp }}/cross/probe-linux
+        run: experiments/install-update/run-mac.sh
